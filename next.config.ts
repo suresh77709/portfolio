@@ -3,9 +3,9 @@ import type { NextConfig } from "next";
 const isStaticExport = process.env.STATIC_EXPORT === "true";
 
 const nextConfig: NextConfig = {
-  output: isStaticExport ? "export" : undefined,
+  output: "export",
   images: {
-    unoptimized: isStaticExport,
+    unoptimized: true,
     formats: ["image/avif", "image/webp"],
     remotePatterns: [
       {

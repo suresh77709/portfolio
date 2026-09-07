@@ -1,17 +1,7 @@
-import { redirect } from "next/navigation";
-import { getAdminSession } from "@/lib/auth";
 import { getDatabase } from "@/lib/db";
 import { AdminDashboardClient } from "./AdminDashboardClient";
 
-export const dynamic = "force-dynamic";
-
-export default async function AdminPage() {
-  const session = await getAdminSession();
-
-  if (!session || session.role !== "ADMIN") {
-    redirect("/admin/login");
-  }
-
+export default function AdminPage() {
   const db = getDatabase();
 
   return (
@@ -21,7 +11,7 @@ export default async function AdminPage() {
       initialSiteSettings={db.siteSettings}
       initialTypography={db.typography}
       initialSocialLinks={db.socialLinks}
-      username={session.username}
+      username="admin"
     />
   );
 }

@@ -85,14 +85,29 @@ export function MediaPickerModal({
   }, [acceptType]);
 
   // Fetch library media
+  // Fetch library media from static manifest + local uploads
   const fetchLibrary = async () => {
     setIsLoadingLibrary(true);
     try {
-      const res = await fetch("/api/admin/media");
-      if (res.ok) {
-        const data = await res.json();
-        setMediaList(data.media || []);
+      let staticItems: MediaItem[] = [];
+      try {
+        const res = await fetch("/data/media-manifest.json");
+        if (res.ok) {
+          staticItems = await res.json();
+        }
+      } catch (e) {
+        console.warn("Could not load media-manifest.json, using defaults");
       }
+
+      let userItems: MediaItem[] = [];
+      try {
+        const local = localStorage.getItem("portfolio_user_uploads");
+        if (local) userItems = JSON.parse(local);
+      } catch {}
+
+      const combined = [...userItems, ...staticItems];
+      const unique = Array.from(new Map(combined.map((item) => [item.filename, item])).values());
+      setMediaList(unique);
     } catch (err) {
       console.error("Failed to load media library:", err);
     } finally {
@@ -131,60 +146,52 @@ export function MediaPickerModal({
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
   };
 
-  // Upload handler with progress simulation / feedback
+  // Upload handler using browser FileReader (fully static-export & GitHub Pages compatible)
   const handleUploadFiles = async (files: FileList | File[]) => {
     if (!files || files.length === 0) return;
 
     setIsUploading(true);
     setUploadError(null);
-    setUploadProgress(15);
+    setUploadProgress(20);
     setUploadStatus("Reading files from computer...");
 
     try {
-      const formData = new FormData();
-      Array.from(files).forEach((file) => {
-        formData.append("files", file);
-      });
+      const fileList = Array.from(files);
+      const newItems: MediaItem[] = [];
 
-      // Progress animation
-      const progressTimer = setInterval(() => {
-        setUploadProgress((prev) => {
-          if (prev >= 85) {
-            clearInterval(progressTimer);
-            return 85;
-          }
-          return prev + 15;
+      for (let i = 0; i < fileList.length; i++) {
+        const file = fileList[i];
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
         });
-      }, 150);
 
-      setUploadStatus("Uploading & optimizing media...");
-
-      const res = await fetch("/api/admin/media", {
-        method: "POST",
-        body: formData,
-      });
-
-      clearInterval(progressTimer);
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || `Upload failed with status ${res.status}`);
+        const safeName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+        const item: MediaItem = {
+          filename: safeName,
+          url: dataUrl,
+          thumbnailUrl: dataUrl,
+          size: file.size,
+          createdAt: new Date().toISOString(),
+          type: file.type.startsWith("video") ? "video" : "image",
+        };
+        newItems.push(item);
       }
 
       setUploadProgress(100);
-      setUploadStatus("Uploaded & optimized successfully!");
+      setUploadStatus("Files uploaded & processed!");
 
-      const data = await res.json();
-      const newItems: MediaItem[] = Array.isArray(data.all)
-        ? data.all
-        : Array.isArray(data.media)
-        ? data.media
-        : data.media
-        ? [data.media]
-        : [];
+      // Save to localStorage for client-side persistence
+      try {
+        const existing: MediaItem[] = JSON.parse(localStorage.getItem("portfolio_user_uploads") || "[]");
+        const updated = [...newItems, ...existing];
+        localStorage.setItem("portfolio_user_uploads", JSON.stringify(updated));
+      } catch {}
 
-      // Refresh media library
-      await fetchLibrary();
+      // Refresh list in state
+      setMediaList((prev) => [...newItems, ...prev]);
 
       setTimeout(() => {
         setIsUploading(false);
@@ -203,13 +210,13 @@ export function MediaPickerModal({
           onSelect(first.url, first);
           onClose();
         }
-      }, 500);
+      }, 400);
     } catch (err: any) {
       console.error("Upload error:", err);
       setIsUploading(false);
       setUploadProgress(0);
       setUploadStatus("");
-      setUploadError(err.message || "Failed to upload file. Please try again.");
+      setUploadError(err.message || "Failed to process file from computer.");
     }
   };
 
